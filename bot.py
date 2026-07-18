@@ -17,17 +17,47 @@ import discord
 from discord.ext import commands
 import requests
 
+# Helper functions to safely load and cast environment configurations
+def get_env_int(key: str, default: int) -> int:
+    val = os.getenv(key)
+    if not val:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        return default
+
+
+def get_env_color(key: str, default: int) -> int:
+    val = os.getenv(key)
+    if not val:
+        return default
+    try:
+        cleaned = val.strip().replace('#', '').replace('0x', '')
+        return int(cleaned, 16)
+    except ValueError:
+        return default
+
+
 # Load environment variables
-DISCORD_TOKEN = os.getenv('DISCORD_TOKEN', 'YOUR_DISCORD_BOT_TOKEN_HERE')
-BOT_NAME = os.getenv('BOT_NAME', 'AuraNodes.fun')
+DISCORD_TOKEN = os.getenv('DISCORD_TOKEN', '')
+BOT_NAME = os.getenv('BOT_NAME', 'VPS Bot')
 PREFIX = os.getenv('PREFIX', '!')
 YOUR_SERVER_IP = os.getenv('YOUR_SERVER_IP', '127.0.0.1')
-MAIN_ADMIN_ID = int(os.getenv('MAIN_ADMIN_ID', '1210291131301101618'))
-VPS_USER_ROLE_ID = int(os.getenv('VPS_USER_ROLE_ID', '1210291131301101618'))
+MAIN_ADMIN_ID = get_env_int('MAIN_ADMIN_ID', 0)
+VPS_USER_ROLE_ID = get_env_int('VPS_USER_ROLE_ID', 0)
 DEFAULT_STORAGE_POOL = os.getenv('DEFAULT_STORAGE_POOL', 'default')
-BOT_VERSION = os.getenv('BOT_VERSION', '7.0-PRO')
-BOT_DEVELOPER = os.getenv('BOT_DEVELOPER', 'AuraNodes Team')
-BOT_LOGO_URL = os.getenv('BOT_LOGO_URL', 'YOUR_AURANODES_LOGO_URL_HERE')
+BOT_VERSION = os.getenv('BOT_VERSION', '1.0.0')
+BOT_DEVELOPER = os.getenv('BOT_DEVELOPER', 'Developer')
+EMBED_LOGO_URL = os.getenv('EMBED_LOGO_URL', '')
+CONTAINER_PREFIX_SLUG = os.getenv('CONTAINER_PREFIX_SLUG', 'vps')
+
+# Embed Colors
+EMBED_COLOR_DEFAULT = get_env_color('EMBED_COLOR_DEFAULT', 0x1a1a1a)
+EMBED_COLOR_SUCCESS = get_env_color('EMBED_COLOR_SUCCESS', 0x00ff88)
+EMBED_COLOR_ERROR = get_env_color('EMBED_COLOR_ERROR', 0xff3366)
+EMBED_COLOR_INFO = get_env_color('EMBED_COLOR_INFO', 0x00ccff)
+EMBED_COLOR_WARNING = get_env_color('EMBED_COLOR_WARNING', 0xffaa00)
 
 # OS Options for VPS Creation and Reinstall
 OS_OPTIONS = [
@@ -40,7 +70,7 @@ OS_OPTIONS = [
     {"label": "Debian 13 (Trixie)", "value": "images:debian/13"},
 ]
 
-# Configure logging to file and console
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -49,7 +79,7 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-logger = logging.getLogger('auranodes_vps_bot')
+logger = logging.getLogger(f'{CONTAINER_PREFIX_SLUG}_vps_bot')
 
 
 @contextmanager
@@ -397,17 +427,19 @@ def truncate_text(text, max_length=1024):
 
 
 # Embed creation functions
-def create_embed(title, description="", color=0x1a1a1a):
+def create_embed(title, description="", color=None):
+    if color is None:
+        color = EMBED_COLOR_DEFAULT
     embed = discord.Embed(
         title=truncate_text(f"🌟 {BOT_NAME} - {title}", 256),
         description=truncate_text(description, 4096),
         color=color
     )
-    if BOT_LOGO_URL and BOT_LOGO_URL != "YOUR_AURANODES_LOGO_URL_HERE":
-        embed.set_thumbnail(url=BOT_LOGO_URL)
+    if EMBED_LOGO_URL and EMBED_LOGO_URL != "YOUR_BRAND_LOGO_URL_HERE":
+        embed.set_thumbnail(url=EMBED_LOGO_URL)
     embed.set_footer(
         text=f"{BOT_NAME} • VPS Control Panel • v{BOT_VERSION}",
-        icon_url=BOT_LOGO_URL if (BOT_LOGO_URL and BOT_LOGO_URL != "YOUR_AURANODES_LOGO_URL_HERE") else None
+        icon_url=EMBED_LOGO_URL if (EMBED_LOGO_URL and EMBED_LOGO_URL != "YOUR_BRAND_LOGO_URL_HERE") else None
     )
     return embed
 
@@ -422,19 +454,19 @@ def add_field(embed, name, value, inline=False):
 
 
 def create_success_embed(title, description=""):
-    return create_embed(title, description, color=0x00ff88)
+    return create_embed(title, description, color=EMBED_COLOR_SUCCESS)
 
 
 def create_error_embed(title, description=""):
-    return create_embed(title, description, color=0xff3366)
+    return create_embed(title, description, color=EMBED_COLOR_ERROR)
 
 
 def create_info_embed(title, description=""):
-    return create_embed(title, description, color=0x00ccff)
+    return create_embed(title, description, color=EMBED_COLOR_INFO)
 
 
 def create_warning_embed(title, description=""):
-    return create_embed(title, description, color=0xffaa00)
+    return create_embed(title, description, color=EMBED_COLOR_WARNING)
 
 
 # Admin checks
@@ -1196,7 +1228,7 @@ class OSSelectView(discord.ui.View):
         if user_id not in vps_data:
             vps_data[user_id] = []
         vps_count = len(vps_data[user_id]) + 1
-        container_name = f"auranodes-vps-{user_id}-{vps_count}"
+        container_name = f"{CONTAINER_PREFIX_SLUG}-vps-{user_id}-{vps_count}"
         ram_mb = self.ram * 1024
         try:
             await execute_lxc(container_name, f"init {os_version} {container_name} -s {DEFAULT_STORAGE_POOL}", node_id=self.node_id)
@@ -1345,7 +1377,7 @@ class ManageView(discord.ui.View):
             self.select = discord.ui.Select(placeholder="Select a VPS to manage", options=options)
             self.select.callback = self.select_vps
             self.add_item(self.select)
-            self.initial_embed = create_embed("VPS Management", "Select a VPS from the dropdown menu below.", 0x1a1a1a)
+            self.initial_embed = create_embed("VPS Management", "Select a VPS from the dropdown menu below.", EMBED_COLOR_DEFAULT)
             add_field(self.initial_embed, "Available VPS", "\n".join([f"**VPS {i+1}:** `{v['container_name']}` - Status: `{v.get('status', 'unknown').upper()}`" for i, v in enumerate(vps_list)]), False)
         else:
             self.selected_index = 0
@@ -1365,7 +1397,7 @@ class ManageView(discord.ui.View):
         status = vps.get('status', 'unknown')
         suspended = vps.get('suspended', False)
         whitelisted = vps.get('whitelisted', False)
-        status_color = 0x00ff88 if status == 'running' and not suspended else 0xffaa00 if suspended else 0xff3366
+        status_color = EMBED_COLOR_SUCCESS if status == 'running' and not suspended else EMBED_COLOR_WARNING if suspended else EMBED_COLOR_ERROR
         container_name = vps['container_name']
         stats = await get_container_stats(container_name)
         status_text = f"{stats['status'].upper()}"
@@ -1536,14 +1568,14 @@ class ManageView(discord.ui.View):
                     await execute_lxc(container_name, f"exec {container_name} -- apt-get update -y", node_id=node_id)
                     await execute_lxc(container_name, f"exec {container_name} -- apt-get install tmate -y", node_id=node_id)
                     await interaction.followup.send(embed=create_success_embed("Installed", "SSH service installed!"), ephemeral=True)
-                session_name = f"auranodes-session-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                session_name = f"{CONTAINER_PREFIX_SLUG}-session-{datetime.now().strftime('%Y%m%d%H%M%S')}"
                 await execute_lxc(container_name, f"exec {container_name} -- tmate -S /tmp/{session_name}.sock new-session -d", node_id=node_id)
                 await asyncio.sleep(3)
                 ssh_output = await execute_lxc(container_name, f"exec {container_name} -- tmate -S /tmp/{session_name}.sock display -p '#{{tmate_ssh}}'", node_id=node_id)
                 ssh_url = ssh_output.strip()
                 if ssh_url:
                     try:
-                        ssh_embed = create_embed("🔑 SSH Access", f"SSH connection for VPS `{container_name}`:", 0x00ff88)
+                        ssh_embed = create_embed("🔑 SSH Access", f"SSH connection for VPS `{container_name}`:", EMBED_COLOR_SUCCESS)
                         add_field(ssh_embed, "Command", f"```{ssh_url}```", False)
                         add_field(ssh_embed, "⚠️ Security", "This link is temporary. Do not share it.", False)
                         add_field(ssh_embed, "📝 Session", f"Session ID: {session_name}", False)
@@ -1614,7 +1646,7 @@ async def vps_list(ctx, node_id: int = 1):
     status = await get_node_status(node_id)
     is_online = status.startswith("🟢")
 
-    # Get node resource stats (will use defaults if offline)
+    # Get node resource stats
     stats = await get_host_stats(node_id)
     cpu_usage = stats.get('cpu', 0.0)
     ram_usage = stats.get('ram', 0.0)
@@ -1681,13 +1713,14 @@ async def vps_list(ctx, node_id: int = 1):
         vps_info.append(f"{status_emoji} **{i}.** {username} • `{vps['container_name']}`\n _{vps_status} | {config}_")
 
     # Create main embed
-    color = 0x10b981 if is_online else 0xef4444
+    color = EMBED_COLOR_SUCCESS if is_online else EMBED_COLOR_ERROR
     embed = create_embed(
         title=f"🖥️ VPS Dashboard - {node['name']}",
         description=f"**ID:** `{node_id}` | **Region:** {node['location']}\n*Updated: <t:{int(datetime.now().timestamp())}:R>*",
         color=color
     )
-    embed.set_thumbnail(url=node.get('thumbnail_url', None) or (BOT_LOGO_URL if BOT_LOGO_URL != "YOUR_AURANODES_LOGO_URL_HERE" else None))
+    if EMBED_LOGO_URL and EMBED_LOGO_URL != "YOUR_BRAND_LOGO_URL_HERE":
+        embed.set_thumbnail(url=node.get('thumbnail_url', None) or EMBED_LOGO_URL)
 
     # Inline status and capacity
     add_field(embed, "📡 **Status**", status, True)
@@ -1713,6 +1746,7 @@ async def vps_list(ctx, node_id: int = 1):
         chunks = [vps_info[i:i + chunk_size] for i in range(0, len(vps_info), chunk_size)]
         first_chunk_text = "\n".join(chunks[0])
         add_field(embed, f"📋 **Active VPS (1/{len(chunks)})**", f"```{first_chunk_text}```", False)
+        await ctx.send(embed=embed)
 
         # Paginated follow-ups
         for idx, chunk in enumerate(chunks[1:], 2):
@@ -1727,9 +1761,7 @@ async def vps_list(ctx, node_id: int = 1):
             await ctx.send(embed=page_embed)
     else:
         add_field(embed, "📋 **VPS List**", "No deployments yet. Launch one! 🚀", False)
-
-    embed.set_footer(text=f"Refresh with !vps-list {node_id} | {len(vps_info)} shown")
-    await ctx.send(embed=embed)
+        await ctx.send(embed=embed)
 
 
 @bot.command(name='list-all')
@@ -1769,11 +1801,11 @@ async def list_all_vps(ctx):
                 vps_info.append(f"{status_emoji} **{user.name}** - VPS {i+1}: `{vps['container_name']}` - {vps.get('config', 'Custom')} - {status_text} (Node: {node_name})")
         except discord.NotFound:
             vps_info.append(f"❓ Unknown User ({user_id}) - {len(vps_list)} VPS")
-    embed = create_embed("All VPS Information", "Complete overview of all VPS deployments and user statistics", 0x1a1a1a)
+    embed = create_embed("All VPS Information", "Complete overview of all VPS deployments and user statistics", EMBED_COLOR_DEFAULT)
     add_field(embed, "System Overview", f"**Total Users:** {total_users}\n**Total VPS:** {total_vps}\n**Running:** {running_vps}\n**Stopped:** {stopped_vps}\n**Suspended:** {suspended_vps}\n**Whitelisted:** {whitelisted_vps}", False)
     await ctx.send(embed=embed)
     if user_summary:
-        embed = create_embed("User Summary", "Summary of all users and their VPS", 0x1a1a1a)
+        embed = create_embed("User Summary", "Summary of all users and their VPS", EMBED_COLOR_DEFAULT)
         summary_text = "\n".join(user_summary)
         chunks = [summary_text[i:i+1024] for i in range(0, len(summary_text), 1024)]
         for idx, chunk in enumerate(chunks, 1):
@@ -1783,9 +1815,9 @@ async def list_all_vps(ctx):
         vps_text = "\n".join(vps_info)
         chunks = [vps_text[i:i+1024] for i in range(0, len(vps_text), 1024)]
         for idx, chunk in enumerate(chunks, 1):
-            embed = create_embed(f"VPS Details (Part {idx})", "List of all VPS deployments", 0x1a1a1a)
-            add_field(embed, "VPS List", chunk, False)
-            await ctx.send(embed=embed)
+            chunk_embed = create_embed(f"VPS Details (Part {idx})", "List of all VPS deployments", EMBED_COLOR_DEFAULT)
+            add_field(chunk_embed, "VPS List", chunk, False)
+            await ctx.send(embed=chunk_embed)
 
 
 @bot.command(name='manage-shared')
@@ -1821,7 +1853,7 @@ async def share_user(ctx, shared_user: discord.Member, vps_number: int):
     save_vps_data()
     await ctx.send(embed=create_success_embed("VPS Shared", f"VPS #{vps_number} shared with {shared_user.mention}!"))
     try:
-        await shared_user.send(embed=create_embed("VPS Access Granted", f"You have access to VPS #{vps_number} from {ctx.author.mention}. Use `{PREFIX}manage-shared {ctx.author.mention} {vps_number}`", 0x00ff88))
+        await shared_user.send(embed=create_embed("VPS Access Granted", f"You have access to VPS #{vps_number} from {ctx.author.mention}. Use `{PREFIX}manage-shared {ctx.author.mention} {vps_number}`", EMBED_COLOR_SUCCESS))
     except discord.Forbidden:
         await ctx.send(embed=create_info_embed("Notification Failed", f"Could not DM {shared_user.mention}"))
 
@@ -1843,7 +1875,7 @@ async def revoke_share(ctx, shared_user: discord.Member, vps_number: int):
     save_vps_data()
     await ctx.send(embed=create_success_embed("Access Revoked", f"Access to VPS #{vps_number} revoked from {shared_user.mention}!"))
     try:
-        await shared_user.send(embed=create_embed("VPS Access Revoked", f"Your access to VPS #{vps_number} by {ctx.author.mention} has been revoked.", 0xff3366))
+        await shared_user.send(embed=create_embed("VPS Access Revoked", f"Your access to VPS #{vps_number} by {ctx.author.mention} has been revoked.", EMBED_COLOR_ERROR))
     except discord.Forbidden:
         await ctx.send(embed=create_info_embed("Notification Failed", f"Could not DM {shared_user.mention}"))
 
@@ -2037,7 +2069,7 @@ async def delete_vps(ctx, user: discord.Member, vps_number: int, *, reason: str 
     save_vps_data()
 
     # Success embed
-    embed = create_success_embed("AuraNodes.fun - VPS Deleted Successfully")
+    embed = create_success_embed("VPS Deleted Successfully")
     add_field(embed, "Owner", user.mention, True)
     add_field(embed, "VPS Number", f"#{vps_number}", True)
     add_field(embed, "Container", container_name, False)
@@ -2314,7 +2346,7 @@ async def system_status(ctx):
     embed = create_embed(
         title="📊 System Status Dashboard",
         description=f"**{BOT_NAME}** - Complete System Overview\n*Generated in {response_time:.0f}ms*",
-        color=0x1a1a1a
+        color=EMBED_COLOR_DEFAULT
     )
     
     # Bot & Uptime Section
@@ -2450,7 +2482,7 @@ async def admin_add(ctx, user: discord.Member):
     save_admin_data()
     await ctx.send(embed=create_success_embed("Admin Added", f"{user.mention} is now an admin!"))
     try:
-        await user.send(embed=create_embed("🎉 Admin Role Granted", f"You are now an admin by {ctx.author.mention}", 0x00ff88))
+        await user.send(embed=create_embed("🎉 Admin Role Granted", f"You are now an admin by {ctx.author.mention}", EMBED_COLOR_SUCCESS))
     except discord.Forbidden:
         await ctx.send(embed=create_info_embed("Notification Failed", f"Could not DM {user.mention}"))
 
@@ -2469,7 +2501,7 @@ async def admin_remove(ctx, user: discord.Member):
     save_admin_data()
     await ctx.send(embed=create_success_embed("Admin Removed", f"{user.mention} is no longer an admin!"))
     try:
-        await user.send(embed=create_embed("⚠️ Admin Role Revoked", f"Your admin role was removed by {ctx.author.mention}", 0xff3366))
+        await user.send(embed=create_embed("⚠️ Admin Role Revoked", f"Your admin role was removed by {ctx.author.mention}", EMBED_COLOR_ERROR))
     except discord.Forbidden:
         await ctx.send(embed=create_info_embed("Notification Failed", f"Could not DM {user.mention}"))
 
@@ -2479,7 +2511,7 @@ async def admin_remove(ctx, user: discord.Member):
 async def admin_list(ctx):
     admins = admin_data.get("admins", [])
     main_admin = await bot.fetch_user(MAIN_ADMIN_ID)
-    embed = create_embed("👑 Admin Team", "Current administrators:", 0x1a1a1a)
+    embed = create_embed("👑 Admin Team", "Current administrators:", EMBED_COLOR_DEFAULT)
     add_field(embed, "🔰 Main Admin", f"{main_admin.mention} (ID: {MAIN_ADMIN_ID})", False)
     if admins:
         admin_list_str = []
@@ -2506,7 +2538,7 @@ async def user_info(ctx, user: discord.Member):
     embed = create_embed(
         title="👤 User Dashboard",
         description=f"Statistics & resources for {user.mention}",
-        color=0x1A1A1A
+        color=EMBED_COLOR_DEFAULT
     )
 
     # Row 1 : User Info
@@ -2664,7 +2696,7 @@ async def server_stats(ctx):
     embed = create_embed(
         title="📊 Server Statistics",
         description="**Live Infrastructure Dashboard**",
-        color=0x1A1A1A
+        color=EMBED_COLOR_DEFAULT
     )
 
     # Row 1
@@ -2762,7 +2794,7 @@ async def vps_info(ctx, container_name: str = None):
         vps_text = "\n".join(all_vps)
         chunks = [vps_text[i:i+1024] for i in range(0, len(vps_text), 1024)]
         for idx, chunk in enumerate(chunks, 1):
-            embed = create_embed(f"🖥️ All VPS (Part {idx})", "List of all VPS deployments", 0x1a1a1a)
+            embed = create_embed(f"🖥️ All VPS (Part {idx})", "List of all VPS deployments", EMBED_COLOR_DEFAULT)
             add_field(embed, "VPS List", chunk, False)
             await ctx.send(embed=embed)
     else:
@@ -2783,7 +2815,7 @@ async def vps_info(ctx, container_name: str = None):
         node_name = node['name'] if node else "Unknown"
         suspended_text = " (SUSPENDED)" if found_vps.get('suspended', False) else ""
         whitelisted_text = " (WHITELISTED)" if found_vps.get('whitelisted', False) else ""
-        embed = create_embed(f"🖥️ VPS Information - {container_name}", f"Details for VPS owned by {found_user.mention}{suspended_text}{whitelisted_text} on node {node_name}", 0x1a1a1a)
+        embed = create_embed(f"🖥️ VPS Information - {container_name}", f"Details for VPS owned by {found_user.mention}{suspended_text}{whitelisted_text} on node {node_name}", EMBED_COLOR_DEFAULT)
         add_field(embed, "👤 Owner", f"**Name:** {found_user.name}\n**ID:** {found_user.id}", False)
         add_field(embed, "📊 Specifications", f"**RAM:** {found_vps['ram']}\n**CPU:** {found_vps['cpu']} Cores\n**Storage:** {found_vps['storage']}", False)
         add_field(embed, "📈 Status", f"**Current:** {found_vps.get('status', 'unknown').upper()}{suspended_text}{whitelisted_text}\n**Suspended:** {found_vps.get('suspended', False)}\n**Whitelisted:** {found_vps.get('whitelisted', False)}\n**Created:** {found_vps.get('created_at', 'Unknown')}", False)
@@ -2834,7 +2866,7 @@ async def execute_command(ctx, container_name: str, *, command: str):
     await ctx.send(embed=create_info_embed("Executing Command", f"Running command in VPS `{container_name}`..."))
     try:
         output = await execute_lxc(container_name, f"exec {container_name} -- bash -c \"{command}\"", node_id=node_id)
-        embed = create_embed(f"Command Output - {container_name}", f"Command: `{command}`", 0x1a1a1a)
+        embed = create_embed(f"Command Output - {container_name}", f"Command: `{command}`", EMBED_COLOR_DEFAULT)
         if output.strip():
             if len(output) > 1000:
                 output = output[:1000] + "\n... (truncated)"
@@ -2903,7 +2935,7 @@ async def resource_monitor_control(ctx, action: str = "status"):
     global resource_monitor_active
     if action.lower() == "status":
         status = "Active" if resource_monitor_active else "Inactive"
-        embed = create_embed("Resource Monitor Status", f"Resource monitoring is currently **{status}** (logs only; no auto-stop)", 0x00ccff if resource_monitor_active else 0xffaa00)
+        embed = create_embed("Resource Monitor Status", f"Resource monitoring is currently **{status}** (logs only; no auto-stop)", EMBED_COLOR_INFO if resource_monitor_active else EMBED_COLOR_WARNING)
         add_field(embed, "Thresholds", f"{CPU_THRESHOLD}% CPU / {RAM_THRESHOLD}% RAM usage", True)
         add_field(embed, "Check Interval", "60 seconds (all nodes)", True)
         await ctx.send(embed=embed)
@@ -2994,7 +3026,7 @@ async def resize_vps(ctx, container_name: str, ram: int = None, cpu: int = None,
 async def clone_vps(ctx, container_name: str, new_name: str = None):
     if not new_name:
         timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-        new_name = f"auranodes-{container_name}-clone-{timestamp}"
+        new_name = f"{CONTAINER_PREFIX_SLUG}-{container_name}-clone-{timestamp}"
     node_id = find_node_id_for_container(container_name)
     await ctx.send(embed=create_info_embed("Cloning VPS", f"Cloning VPS `{container_name}` to `{new_name}`..."))
     try:
@@ -3048,7 +3080,7 @@ async def migrate_vps(ctx, container_name: str, target_node_id: int):
     await ctx.send(embed=create_info_embed("Migrating VPS", f"Migrating VPS `{container_name}` to node {target_node['name']}..."))
     try:
         await execute_lxc(container_name, f"stop {container_name}", node_id=node_id)
-        temp_name = f"auranodes-{container_name}-temp-{int(time.time())}"
+        temp_name = f"{CONTAINER_PREFIX_SLUG}-{container_name}-temp-{int(time.time())}"
         await execute_lxc(container_name, f"copy {container_name} {temp_name} -s {DEFAULT_STORAGE_POOL}", node_id=target_node_id)
         await execute_lxc(container_name, f"delete {container_name} --force", node_id=node_id)
         await execute_lxc(temp_name, f"rename {temp_name} {container_name}", node_id=target_node_id)
@@ -3076,7 +3108,7 @@ async def vps_stats(ctx, container_name: str):
     await ctx.send(embed=create_info_embed("Gathering Statistics", f"Collecting statistics for VPS `{container_name}`..."))
     try:
         stats = await get_container_stats(container_name, node_id)
-        embed = create_embed(f"📊 VPS Statistics - {container_name}", "Resource usage statistics", 0x1a1a1a)
+        embed = create_embed(f"📊 VPS Statistics - {container_name}", "Resource usage statistics", EMBED_COLOR_DEFAULT)
         add_field(embed, "📈 Status", f"**{stats['status'].upper()}**", False)
         add_field(embed, "💻 CPU Usage", f"**{stats['cpu']:.1f}%**", True)
         add_field(embed, "🧠 Memory Usage", f"**{stats['ram']['used']}/{stats['ram']['total']} MB ({stats['ram']['pct']:.1f}%)**", True)
@@ -3143,7 +3175,7 @@ async def vps_network(ctx, container_name: str, action: str, value: str = None):
             output = await execute_lxc(container_name, f"exec {container_name} -- ip addr", node_id=node_id)
             if len(output) > 1000:
                 output = output[:1000] + "\n... (truncated)"
-            embed = create_embed(f"🌐 Network Interfaces - {container_name}", "Network configuration", 0x1a1a1a)
+            embed = create_embed(f"🌐 Network Interfaces - {container_name}", "Network configuration", EMBED_COLOR_DEFAULT)
             add_field(embed, "Interfaces", f"```\n{output}\n```", False)
             await ctx.send(embed=embed)
         elif action.lower() == "limit" and value:
@@ -3171,7 +3203,7 @@ async def vps_processes(ctx, container_name: str):
         output = await execute_lxc(container_name, f"exec {container_name} -- ps aux", node_id=node_id)
         if len(output) > 1000:
             output = output[:1000] + "\n... (truncated)"
-        embed = create_embed(f"⚙️ Processes - {container_name}", "Running processes", 0x1a1a1a)
+        embed = create_embed(f"⚙️ Processes - {container_name}", "Running processes", EMBED_COLOR_DEFAULT)
         add_field(embed, "Process List", f"```\n{output}\n```", False)
         await ctx.send(embed=embed)
     except Exception as e:
@@ -3187,7 +3219,7 @@ async def vps_logs(ctx, container_name: str, lines: int = 50):
         output = await execute_lxc(container_name, f"exec {container_name} -- journalctl -n {lines}", node_id=node_id)
         if len(output) > 1000:
             output = output[:1000] + "\n... (truncated)"
-        embed = create_embed(f"📋 Logs - {container_name}", f"Last {lines} log lines", 0x1a1a1a)
+        embed = create_embed(f"📋 Logs - {container_name}", f"Last {lines} log lines", EMBED_COLOR_DEFAULT)
         add_field(embed, "System Logs", f"```\n{output}\n```", False)
         await ctx.send(embed=embed)
     except Exception as e:
@@ -3298,7 +3330,7 @@ async def suspension_logs(ctx, container_name: str = None):
         if not history:
             await ctx.send(embed=create_info_embed("No Suspensions", f"No suspension history for `{container_name}`."))
             return
-        embed = create_embed("Suspension History", f"For `{container_name}`")
+        embed = create_embed("Suspension History", f"For `{container_name}`", EMBED_COLOR_DEFAULT)
         text = []
         for h in sorted(history, key=lambda x: x['time'], reverse=True)[:10]:
             t = datetime.fromisoformat(h['time']).strftime('%Y-%m-%d %H:%M:%S')
@@ -3321,7 +3353,7 @@ async def suspension_logs(ctx, container_name: str = None):
         logs_text = "\n".join(all_logs)
         chunks = [logs_text[i:i+1024] for i in range(0, len(logs_text), 1024)]
         for idx, chunk in enumerate(chunks, 1):
-            embed = create_embed(f"Suspension Logs (Part {idx})", "Global suspension events (newest first)")
+            embed = create_embed(f"Suspension Logs (Part {idx})", "Global suspension events (newest first)", EMBED_COLOR_DEFAULT)
             add_field(embed, "Events", chunk, False)
             await ctx.send(embed=embed)
 
@@ -4090,7 +4122,7 @@ class HelpView(discord.ui.View):
             "admin": 0xe67e22, # Carrot
             "main_admin": 0xf1c40f # Yellow
         }
-        color = colors.get(self.current_category, 0x1a1a1a)
+        color = colors.get(self.current_category, EMBED_COLOR_DEFAULT)
        
         title = f"📚 {BOT_NAME} Command Help - {category_data['name']}"
         description = f"**{category_data['name']}**\nUse the dropdown below to switch categories."
@@ -4165,7 +4197,7 @@ async def info_alias(ctx, user: discord.Member = None):
 
 
 if __name__ == "__main__":
-    if DISCORD_TOKEN and DISCORD_TOKEN != 'YOUR_DISCORD_BOT_TOKEN_HERE':
+    if DISCORD_TOKEN:
         bot.run(DISCORD_TOKEN)
     else:
         logger.error("No Discord token found. Please ensure DISCORD_TOKEN is set in your environment.")
